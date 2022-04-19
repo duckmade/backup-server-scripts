@@ -17,11 +17,13 @@ sync_secondary_back="yes" # should the secondary data be synced back if failover
 # docker stacks to shutdown and restart ("stack 1" "stack 2")
 declare -a stacks=("" "")
 
-# primary directories to backup on source server ("source 1" "destination 1" "source 2" "destination 2")
-declare -a primary=("" "" "" "")
+# primary directories to backup on source server ("source 1" "source 2")
+declare -a source_primary=("" "" "" "")
+declare -a destination_primary=("" "" "" "")
 
-# secondary directories to backup on source server ("source 1" "destination 1" "source 2" "destination 2")
-declare -a secondary=("" "" "" "")
+# secondary directories to backup on source server ("source 1" "source 2")
+declare -a source_secondary=("" "" "" "")
+declare -a destination_secondary=("" "" "" "")
 
 CONFI="/mnt/user/appdata/backups/config.cfg"
 loglocation="/mnt/user/appdata/backups/logs/"
@@ -79,8 +81,10 @@ wakeonlan () {
 writeconfig () {
   echo "Writing config file" 
   echo
-  echo "primary=(${primary[@]})"  | sudo tee  --append $CONFI
-  echo "secondary=(${secondary[@]})"  | sudo tee  --append $CONFI
+  echo "source_primary=(${source_primary[@]})"  | sudo tee  --append $CONFI
+  echo "destination_primary=(${destination_primary[@]})"  | sudo tee  --append $CONFI
+  echo "source_secondary=(${source_secondary[@]})"  | sudo tee  --append $CONFI
+  echo "destination_secondary=(${destination_secondary[@]})"  | sudo tee  --append $CONFI
   echo "source_ip=\"$source_ip\"" | sudo tee  --append $CONFI
   echo "source_mac=\"$source_mac\"" | sudo tee  --append $CONFI
   echo "destination_ip=\"$destination_ip\"" | sudo tee  --append $CONFI

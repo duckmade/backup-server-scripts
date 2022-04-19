@@ -23,8 +23,8 @@ pingsource () {
 }
 
 shallicontinue () {
-  if [ -f /mnt/user/appdata/backups/i_shutdown_source ] ; then
-    rm /mnt/user/appdata/backups/i_shutdown_source
+  if [ -f /mnt/user/appdata/backups/shutdown ] ; then
+    rm /mnt/user/appdata/backups/shutdown
     pingsource
     if [ "$sourcestatus" == "on"  ] ; then
       echo "Source server already running."
@@ -77,15 +77,16 @@ syncmaindata () {
   # sync data from destination server to source server
   if [ "$sync_primary_back" == "yes"  ] ; then
     echo "Main data will be synced back to source server"
-    for i in `seq 0 2 ${#primary[@]}` ; do
-      rsync -avhsP --delete "${primary[$i + 1]}" "$HOST":"${primary[$i]}"
+    for i in `seq 0 ${#source_primary[@]}` ; do
+      rsync -avhsP --delete "${destination_primary[$i]}" "$HOST":"${source_primary[$i]}"
     done
   fi
 }
 
 shutdownstacks () {
   for contval in "${stacks[@]}" ; do
-    echo "Shutting down specified stacks on source server before sync ....." 
+    echo "Shutting down specified stacks on backup and source server ....."
+    docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml down
     ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml down
     echo 
   done
@@ -95,7 +96,7 @@ shutdownstacks () {
 startupstacks () {
   for contval in "${stacks[@]}" ; do
     echo "Restarting specified stacks on source server now appdata is synced ....." 
-    ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml up
+    ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml up -d
     echo 
   done
 }
@@ -104,8 +105,8 @@ syncappdata () {
   if [ "$sync_secondary_back" == "yes"  ] ; then
     echo "Appdata will be synced back to source server"
     shutdownstacks
-    for j in `seq 0 2 ${#secondary[@]}` ; do
-      rsync -avhsP --delete "${secondary[$j + 1]}" "$HOST":"${secondary[$j]}"
+    for j in `seq 0 ${#source_secondary[@]}` ; do
+      rsync -avhsP --delete "${destination_secondary[$j]}" "$HOST":"${source_secondary[$j]}"
     done
     startupstacks # Restart the shutdown stacks on source now appdata has been synced
   fi

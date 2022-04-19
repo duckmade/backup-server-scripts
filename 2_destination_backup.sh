@@ -1,8 +1,8 @@
 #!/bin/bash
 umask 0000
 
-source_ip="192.168.1.100" # ip address of the source
-forcestart="no"           # should request be forced to source?
+source_ip=""    # ip address of the source
+forcestart="no" # should request be forced to source?
 
 CONFI="/mnt/user/appdata/backups/config.cfg"
 
@@ -20,8 +20,8 @@ readconfig () {
 syncmaindata () {
   # sync data from source server to backup server
   if [ "$sync_primary" == "yes"  ] ; then
-    for i in `seq 0 2 ${#primary[@]}` ; do
-      rsync -avhsP --delete "$HOST":"${primary[$i]}" "${primary[$i + 1]}"
+    for i in `seq 0 ${#source_primary[@]}` ; do
+      rsync -avhsP --delete "$HOST":"${source_primary[$i]}" "${destination_primary[$i]}"
     done
   fi
 }
@@ -29,8 +29,8 @@ syncmaindata () {
 shutdownstacks () {
   for contval in "${stacks[@]}" ; do
     echo "Shutting down specified stacks on host and backup server ....." 
-    ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml down
     docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml down
+    ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml down
     echo 
   done
   sleep 10
@@ -40,14 +40,14 @@ startupstacks () {
   if [ "$failover" == "yes"  ] ; then
     for contval in "${stacks[@]}" ; do
       echo "Starting specified stacks on backup server ....." 
-      docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml up
+      docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml up -d
       echo 
     done
   fi
   if [ "$failover" == "no"  ] ; then
     for contval in "${stacks[@]}" ; do
       echo "Starting specified stacks on source server  ....." 
-      ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml up
+      ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml up -d
       echo 
     done
   fi
@@ -56,8 +56,8 @@ startupstacks () {
 syncappdata () {
   if [ "$sync_secondary" == "yes"  ] ; then
     shutdownstacks
-    for j in `seq 0 2 ${#secondary[@]}` ; do
-      rsync -avhsP --delete "$HOST":"${secondary[$j]}" "${secondary[$j + 1]}"
+    for j in `seq 0 ${#source_secondary[@]}` ; do
+      rsync -avhsP --delete "$HOST":"${source_secondary[$j]}" "${destination_secondary[$j]}"
     done
     startupstacks
   fi
@@ -71,7 +71,7 @@ endandshutdown () {
   elif [ "$poweroff" == "source"  ] ; then
     ssh "$HOST" 'poweroff' # shutdown source server to shutdown
     echo "source server will shut off shortly"
-    touch /mnt/user/appdata/backups/i_shutdown_source
+    touch /mnt/user/appdata/backups/shutdown
   else
     echo "Neither Source nor backup server set to turn off"
   fi
