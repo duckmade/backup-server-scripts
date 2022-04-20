@@ -1,20 +1,22 @@
 #!/bin/bash
 umask 0000
 
-CONFI="/mnt/user/appdata/backups/config.cfg"
+source_ip="" # ip address of the source
+source_mac="" # macaddress of source
+
+# secondary directories to sync back to source ("source 1" "source 2") (optional)
+declare -a source_secondary=("" "")
+declare -a destination_secondary=("" "")
+
+loglocation="/mnt/user/appdata/backups/logs/"
+logname="$loglocation""$(date +'%Y-%m-%d')"--3_destination_start_source.txt
+
+HOST="root@""$source_ip"
 
 # functions ####################################################################
 
-readconfig () { 
-  source "$CONFI"
-  HOST="root@""$source_ip" 
-  mkdir -p "$loglocation"
-  logname="$loglocation""$(date +'%Y-%m-%d--%H:%M')""--destination_to_source.txt"
-  touch "$logname"
-}
-
 pingsource () {
-  ping "$source_ip" -c3 > /dev/null 2>&1 ; yes=$? ; # ping source server 3 times to check for reply
+  ping "$source_ip" -c3 > /dev/null 2>&1 ; yes=$? ;
   if [ ! $yes == 0 ] ; then
     sourcestatus="off"
   else
@@ -27,16 +29,14 @@ shallicontinue () {
     rm /mnt/user/appdata/backups/shutdown
     pingsource
     if [ "$sourcestatus" == "on"  ] ; then
-      echo "Source server already running."
-      echo "Shutting down backup server"
+      echo "Source server already running. Shutting down backup server ... exiting"
       poweroff
       exit
     else
-      echo "Source server is off...continuing"
-      echo "Attempting to start source server"
+      echo "Source server is off. Attempting to start source server"
     fi
   else
-    echo "I didnt shutdown the source server so i will not start it up ....exiting"
+    echo "I didn't shutdown the source server so i will not start it up ... exiting"
     exit
   fi
 }
@@ -46,87 +46,73 @@ wakeonlan () {
 }
 
 sourcestatus () {
-  sourcecheck=1
-  #check if source server has started up yet
+  checksource=1
   while [ "$sourcestatus" == "off" ] ; do
     pingsource
-    echo "..........Checking source server attempt..." "$sourcecheck"
-    echo "Source server not started yet"
-    echo "Waiting 30 seconds to retry ......"
-    ((sourcecheck=sourcecheck+1))
-    sleep 30  # wait 30 seconds before rechecking
+    echo "...Checking source server attempt..." "$checksource"
+    echo "Source server not started yet. Waiting 30 seconds to retry ..."
+    ((checksource=checksource+1))
+    sleep 30
   done
-  echo "..........Checking source server attempt..." "$sourcecheck"
-  echo "Source server is now up"
+  echo "Server is on, taking" "$((checksource * 30))" "seconds to boot"
 }
 
 checkarraystarted () {
-  arraycheck=1
+  checkarray=1
   while ssh "$HOST" [ ! -d "/mnt/user/appdata/backups/" ] ; do
-    echo "Attempt" "$arraycheck" "waiting for source server array to become available"
-    echo "Waiting 10 seconds to retry...."
-    ((arraycheck=arraycheck+1))
+    echo "...Checking source server attempt..." "$checkarray"
+    echo "Waiting for source server array to become available. Waiting 10 seconds to retry ..."
+    ((checkarray=checkarray+1))
     sleep 10
   done
-  echo "Attempt" "$arraycheck" "Ok. Source server array now started...."
-  echo "I will wait 30 seconds to be sure docker service has started"
-  sleep 30
-}
-
-syncmaindata () {
-  # sync data from destination server to source server
-  if [ "$sync_primary_back" == "yes"  ] ; then
-    echo "Main data will be synced back to source server"
-    for i in `seq 0 ${#source_primary[@]}` ; do
-      rsync -avhsP --delete "${destination_primary[$i]}" "$HOST":"${source_primary[$i]}"
-    done
-  fi
+  echo "Source server array now started, taking" "$((checkarray * 10))" "seconds to start. I will wait 60 seconds to be sure docker service has started"
+  sleep 60
 }
 
 shutdownstacks () {
-  for contval in "${stacks[@]}" ; do
-    echo "Shutting down specified stacks on backup and source server ....."
-    docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml down
-    ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml down
-    echo 
+  for i in $(echo /boot/config/plugins/compose.manager/projects/*/compose.yml) ; do
+    echo "Shutting down stacks on backup ..."
+    docker-compose -f "$i" down
   done
   sleep 10
 }
 
 startupstacks () {
-  for contval in "${stacks[@]}" ; do
-    echo "Restarting specified stacks on source server now appdata is synced ....." 
-    ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml up -d
-    echo 
+  for i in $(ssh "$HOST" echo /boot/config/plugins/compose.manager/projects/*/compose.yml) ; do
+    echo "Restarting stacks on source server ....." 
+    ssh "$HOST" docker-compose -f "$i" up -d
   done
 }
 
-syncappdata () {
-  if [ "$sync_secondary_back" == "yes"  ] ; then
-    echo "Appdata will be synced back to source server"
+syncdata () {
+  if [ ${#source_secondary[@]} -ne 0 ] ; then
+    echo "Syncing secondary data back to source server ..."
     shutdownstacks
     for j in `seq 0 ${#source_secondary[@]}` ; do
       rsync -avhsP --delete "${destination_secondary[$j]}" "$HOST":"${source_secondary[$j]}"
     done
-    startupstacks # Restart the shutdown stacks on source now appdata has been synced
+    startupstacks
   fi
 }
 
-sync2source () {
-  syncmaindata
-  syncappdata 
+cleanup () {
+  echo "Shutting down backup server ... exiting"
+  rsync -avhsP  "$logname" "$HOST":"$logname" >/dev/null
+  rm "$logname"
+  poweroff
+}
+
+mainfunction () {
+  shallicontinue
+  wakeonlan
+  sourcestatus
+  checkarraystarted
+  syncdata
+  cleanup
 }
 
 # start process ################################################################
 
-readconfig
-shallicontinue
-wakeonlan
-sleep 5
-sourcestatus 
-checkarraystarted 
-sync2source 2>&1 | tee -a "$logname"
-rsync -avhsP  "$logname" "$HOST":"$logname" >/dev/null
-rm "$logname"
-poweroff # shutdown server
+mkdir -p "$loglocation" && touch "$logname"
+mainfunction 2>&1 | tee -a "$logname"
 exit

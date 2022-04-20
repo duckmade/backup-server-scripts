@@ -1,102 +1,101 @@
 #!/bin/bash
 umask 0000
 
-source_ip=""    # ip address of the source
-forcestart="no" # should request be forced to source?
+source_ip="" # ip address of the source
+failover="no" # should the destination server take over running of docker stacks or turn off after sync (default: no)?
 
-CONFI="/mnt/user/appdata/backups/config.cfg"
+# primary directories to backup ("source 1" "source 2")
+declare -a source_primary=("" "")
+declare -a destination_primary=("" "")
+
+# secondary directories to backup ("source 1" "source 2") (optional)
+declare -a source_secondary=("" "")
+declare -a destination_secondary=("" "")
+
+loglocation="/mnt/user/appdata/backups/logs/"
+logname="$loglocation""$(date +'%Y-%m-%d')"--2_destination_backup.txt
+
+HOST="root@""$source_ip"
 
 # functions ####################################################################
 
-readconfig () {
-  # read config file written by source server and set other variables
-  mkdir -p /mnt/user/appdata/backups/
-  HOST="root@""$source_ip"
-  rsync -avhsP  "$HOST":"$CONFI" "$CONFI" 
-  source "$CONFI"
-  ssh "$HOST" [[ -f /mnt/user/appdata/backups/start ]] && start="yes" ||  start="no";
-}
-
-syncmaindata () {
-  # sync data from source server to backup server
-  if [ "$sync_primary" == "yes"  ] ; then
-    for i in `seq 0 ${#source_primary[@]}` ; do
-      rsync -avhsP --delete "$HOST":"${source_primary[$i]}" "${destination_primary[$i]}"
-    done
+shallicontinue () {
+  ssh "$HOST" [[ -f /mnt/user/appdata/backups/start ]] && start="yes" || start="no";
+  if [ "$start" == "no" ] ; then
+    echo "Source server didn't request sync job. Normal start of backup server ... exiting"
+    exit
   fi
+  echo "Source server initiated sync"
 }
 
 shutdownstacks () {
-  for contval in "${stacks[@]}" ; do
-    echo "Shutting down specified stacks on host and backup server ....." 
-    docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml down
-    ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml down
-    echo 
+  for i in $(echo /boot/config/plugins/compose.manager/projects/*/compose.yml) ; do
+    echo "Shutting down specified stacks on host server ..."
+    docker-compose -f "$i" down
+  done
+  sleep 10
+  for i in $(ssh "$HOST" echo /boot/config/plugins/compose.manager/projects/*/compose.yml) ; do
+    echo "Shutting down specified stacks on backup server ..."
+    ssh "$HOST" docker-compose -f "$i" down
   done
   sleep 10
 }
 
 startupstacks () {
   if [ "$failover" == "yes"  ] ; then
-    for contval in "${stacks[@]}" ; do
-      echo "Starting specified stacks on backup server ....." 
-      docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml up -d
-      echo 
+    for i in $(echo /boot/config/plugins/compose.manager/projects/*/compose.yml) ; do
+      echo "Starting stacks on backup server ..."
+      docker-compose -f "$i" up -d
     done
-  fi
-  if [ "$failover" == "no"  ] ; then
-    for contval in "${stacks[@]}" ; do
-      echo "Starting specified stacks on source server  ....." 
-      ssh "$HOST" docker-compose -f /boot/config/plugins/compose.manager/projects/"$contval"/compose.yml up -d
-      echo 
+  else
+    for i in $(ssh "$HOST" echo /boot/config/plugins/compose.manager/projects/*/compose.yml) ; do
+      echo "Starting stacks on source server ..."
+      ssh "$HOST" docker-compose -f "$i" up -d
     done
   fi
 }
 
-syncappdata () {
-  if [ "$sync_secondary" == "yes"  ] ; then
+syncdata () {
+  echo "Syncing primary data to backup server ..."
+  for i in `seq 0 ${#source_primary[@]}` ; do
+    rsync -avhsP --delete "$HOST":"${source_primary[$i]}" "${destination_primary[$i]}"
+  done
+  if [ ${#source_secondary[@]} -ne 0 ] ; then
+    echo "Syncing secondary data to backup server ..."
     shutdownstacks
     for j in `seq 0 ${#source_secondary[@]}` ; do
       rsync -avhsP --delete "$HOST":"${source_secondary[$j]}" "${destination_secondary[$j]}"
     done
     startupstacks
+  else
+    echo "No secondary data to sync ... exiting"
   fi
 }
 
-endandshutdown () {
-  # this function cleans up and exits script shutting down server if that has been set
-  if [ "$poweroff" == "backup"  ] ; then
-    echo "Shutting down backup server"
-    poweroff # shutdown backup server
-  elif [ "$poweroff" == "source"  ] ; then
-    ssh "$HOST" 'poweroff' # shutdown source server to shutdown
-    echo "source server will shut off shortly"
+cleanup () {
+  ssh "$HOST" 'rm /mnt/user/appdata/backups/start'
+  if [ "$failover" == "yes"  ] ; then
+    echo "Source server will shut off shortly ... exiting"
+    rsync -avhsP  "$logname" "$HOST":"$logname" >/dev/null
+    rm "$logname"
+    ssh "$HOST" 'poweroff'
     touch /mnt/user/appdata/backups/shutdown
   else
-    echo "Neither Source nor backup server set to turn off"
+    echo "Shutting down backup server ... exiting"
+    rsync -avhsP  "$logname" "$HOST":"$logname" >/dev/null
+    rm "$logname"
+    poweroff
   fi
-  ssh "$HOST" 'rm /mnt/user/appdata/backups/start' 
 }
 
 mainfunction () {
-  # check if main server started process by making start flag file, then start sync
-  if [ "$start" == "yes" ] ; then
-    syncmaindata
-    syncappdata
-    endandshutdown
-  elif  [ "$forcestart" == "yes"  ] ; then
-    syncmaindata
-    syncappdata
-    endandshutdown
-  else
-    echo "Source server didn't request sync job"
-    echo "Normal start of backup server so exiting script"
-    exit
-  fi
+  shallicontinue
+  syncdata
+  cleanup
 }
 
 # start process ################################################################
 
-readconfig
-mainfunction 2>&1 | ssh "$HOST" -T tee -a "$logname"
+mkdir -p "$loglocation" && touch "$logname"
+mainfunction 2>&1 | tee -a "$logname"
 exit
