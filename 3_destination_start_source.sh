@@ -1,22 +1,35 @@
 #!/bin/bash
 umask 0000
 
-source_ip="" # ip address of the source
-source_mac="" # macaddress of source
+# ip address of the source
+source_ip=""
 
-# secondary directories to sync back to source ("source 1" "source 2") (optional)
-declare -a source_secondary=("" "")
-declare -a destination_secondary=("" "")
+# macaddress of source
+source_mac=""
 
-loglocation="/mnt/user/appdata/backups/logs/"
-logname="$loglocation""$(date +'%Y-%m-%d')"--3_destination_start_source.txt
+# location where docker related data is stored on source server (without trailing slash!)
+docker_location_source="/mnt/user/appdata"
+
+# location of backup directory for both source and destination (without trailing slash!)
+backup_location="/mnt/user/system/backups"
+
+# optional variables ###########################################################
+
+# location where docker related data is stored on destination server (without trailing slash!)
+# if set, docker data is synced to destination server and stacks are shutdown!
+docker_location_destination=""
+
+# fixed variables ##############################################################
+
+log_location="$backup_location"/logs
+log_name="$log_location"/"$(date +'%Y-%m-%d')"--3_destination_start_source.txt
 
 HOST="root@""$source_ip"
 
 # functions ####################################################################
 
 pingsource () {
-  ping "$source_ip" -c3 > /dev/null 2>&1 ; yes=$? ;
+  ping "$source_ip" -c10 > /dev/null 2>&1 ; yes=$? ;
   if [ ! $yes == 0 ] ; then
     sourcestatus="off"
   else
@@ -25,16 +38,15 @@ pingsource () {
 }
 
 shallicontinue () {
-  if [ -f /mnt/user/appdata/backups/shutdown ] ; then
-    rm /mnt/user/appdata/backups/shutdown
+  if [ -f "$backup_location"/i_shutdown_source ] ; then
+    rm "$backup_location"/i_shutdown_source
     pingsource
     if [ "$sourcestatus" == "on"  ] ; then
-      echo "Source server already running. Shutting down backup server ... exiting"
-      poweroff
+      echo "Source server already running"
+      cleanup
       exit
-    else
-      echo "Source server is off. Attempting to start source server"
     fi
+    echo "Source server is off. Attempting to start source server"
   else
     echo "I didn't shutdown the source server so i will not start it up ... exiting"
     exit
@@ -59,7 +71,7 @@ sourcestatus () {
 
 checkarraystarted () {
   checkarray=1
-  while ssh "$HOST" [ ! -d "/mnt/user/appdata/backups/" ] ; do
+  while ssh "$HOST" [ ! -d "$backup_location"/ ] ; do
     echo "...Checking source server attempt..." "$checkarray"
     echo "Waiting for source server array to become available. Waiting 10 seconds to retry ..."
     ((checkarray=checkarray+1))
@@ -70,35 +82,28 @@ checkarraystarted () {
 }
 
 shutdownstacks () {
-  for i in $(echo /boot/config/plugins/compose.manager/projects/*/compose.yml) ; do
-    echo "Shutting down stacks on backup ..."
-    docker-compose -f "$i" down
+  for i in $(find /boot/config/plugins/compose.manager/projects/ -mindepth 1 -maxdepth 1 -type d) ; do
+    echo "Shutting down stacks on destination server ..."
+    docker-compose -f "$i"/compose.yml down
+  done
+  sleep 10
+  for i in $(ssh "$HOST" find /boot/config/plugins/compose.manager/projects/ -mindepth 1 -maxdepth 1 -type d) ; do
+    echo "Shutting down specified stacks on source server ..."
+    ssh "$HOST" docker-compose -f "$i"/compose.yml down
   done
   sleep 10
 }
 
 startupstacks () {
-  for i in $(ssh "$HOST" echo /boot/config/plugins/compose.manager/projects/*/compose.yml) ; do
-    echo "Restarting stacks on source server ....." 
-    ssh "$HOST" docker-compose -f "$i" up -d
+  for i in $(ssh "$HOST" find /boot/config/plugins/compose.manager/projects/ -mindepth 1 -maxdepth 1 -type d) ; do
+    echo "Starting stacks on source server ....." 
+    ssh "$HOST" docker-compose -f "$i"/compose.yml up -d
   done
 }
 
-syncdata () {
-  if [ ${#source_secondary[@]} -ne 0 ] ; then
-    echo "Syncing secondary data back to source server ..."
-    shutdownstacks
-    for j in `seq 0 ${#source_secondary[@]}` ; do
-      rsync -avhsP --delete "${destination_secondary[$j]}" "$HOST":"${source_secondary[$j]}"
-    done
-    startupstacks
-  fi
-}
-
 cleanup () {
+  rsync -avhsP --delete "$backup_location"/ "$HOST":"$backup_location" >/dev/null
   echo "Shutting down backup server ... exiting"
-  rsync -avhsP  "$logname" "$HOST":"$logname" >/dev/null
-  rm "$logname"
   poweroff
 }
 
@@ -107,12 +112,17 @@ mainfunction () {
   wakeonlan
   sourcestatus
   checkarraystarted
-  syncdata
+  if [ -n "$docker_location_destination"] ; then
+    echo "Syncing docker data back to source server ..."
+    shutdownstacks
+    rsync -avhsP --delete "$docker_location_destination"/ "$HOST":"$docker_location_source"
+    startupstacks
+  fi
   cleanup
 }
 
 # start process ################################################################
 
-mkdir -p "$loglocation" && touch "$logname"
-mainfunction 2>&1 | tee -a "$logname"
+mkdir -p "$log_location" && touch "$log_name"
+mainfunction 2>&1 | tee -a "$log_name"
 exit
