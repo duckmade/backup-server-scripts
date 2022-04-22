@@ -37,22 +37,6 @@ pingsource () {
   fi
 }
 
-shallicontinue () {
-  if [ -f "$backup_location"/i_shutdown_source ] ; then
-    rm "$backup_location"/i_shutdown_source
-    pingsource
-    if [ "$sourcestatus" == "on" ] ; then
-      echo "Source server already running"
-      cleanup
-      exit
-    fi
-    echo "Source server is off. Attempting to start source server"
-  else
-    echo "I didn't shutdown the source server so i will not start it up ... exiting"
-    exit
-  fi
-}
-
 wakeonlan () {
   etherwake -b "$source_mac"
 }
@@ -101,28 +85,34 @@ startupstacks () {
   done
 }
 
-cleanup () {
-  rsync -avhsP --delete "$backup_location"/ "$HOST":"$backup_location" >/dev/null
-  echo "Shutting down backup server ... exiting"
-  poweroff
-}
-
 mainfunction () {
-  shallicontinue
-  wakeonlan
-  sourcestatus
-  checkarraystarted
-  if [ -n "$docker_location_destination" ] ; then
-    echo "Syncing docker data back to source server ..."
-    shutdownstacks
-    rsync -avhsP --delete "$docker_location_destination"/ "$HOST":"$docker_location_source"
-    startupstacks
+  if [ -f "$backup_location"/i_shutdown_source ] ; then
+    rm "$backup_location"/i_shutdown_source
+    pingsource
+    if [ "$sourcestatus" == "on" ] ; then
+      echo "Source server already running"
+    else
+      echo "Source server is off. Attempting to start source server"
+      wakeonlan
+      sourcestatus
+      checkarraystarted
+      if [ -n "$docker_location_destination" ] ; then
+        echo "Syncing docker data back to source server ..."
+        shutdownstacks
+        rsync -avhsP --delete "$docker_location_destination"/ "$HOST":"$docker_location_source"
+        startupstacks
+      fi
+    fi
+  else
+    echo "I didn't shutdown the source server so i will not start it up"
   fi
-  cleanup
+  echo "Shutting down backup server ... exiting"
 }
 
 # start process ################################################################
 
 mkdir -p "$log_location" && touch "$log_name"
 mainfunction 2>&1 | tee -a "$log_name"
+rsync -avhsP "$log_name" "$HOST":"$log_name" >/dev/null
+poweroff
 exit

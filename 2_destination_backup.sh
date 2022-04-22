@@ -32,17 +32,6 @@ HOST="root@""$source_ip"
 
 # functions ####################################################################
 
-shallicontinue () {
-  ssh "$HOST" [[ -f "$backup_location"/start ]] && start="yes" || start="no";
-  if [ "$start" == "no" ] ; then
-    echo "Source server didn't request sync job. Normal start of backup server ... exiting"
-    exit
-  fi
-  rsync -avhsP --delete "$HOST":"$backup_location"/ "$backup_location" >/dev/null
-  echo "Source server initiated sync"
-  rm "$backup_location"/start
-}
-
 shutdownstacks () {
   for i in $(find /boot/config/plugins/compose.manager/projects/ -mindepth 1 -maxdepth 1 -type d) ; do
     echo "Shutting down specified stacks on destination server ..."
@@ -70,35 +59,44 @@ startupstacks () {
   fi
 }
 
-cleanup () {
-  rsync -avhsP --delete "$backup_location"/ "$HOST":"$backup_location" >/dev/null
-  if [ "$failover" == "yes" ] ; then
-    echo "Source server will shut off shortly ... exiting"
-    ssh "$HOST" poweroff
-    touch "$backup_location"/i_shutdown_source
-  else
-    echo "Shutting down backup server ... exiting"
-    poweroff
-  fi
-}
-
 mainfunction () {
-  shallicontinue
-  echo "Syncing data to backup server ..."
-  for i in `seq 1 ${#source[@]}` ; do
-    rsync -avhsP --delete "$HOST":"${source[$i -1]}"/ "${destination[$i -1]}"
-  done
-  if [ -n "$docker_location_destination" ] ; then
-    echo "Syncing docker data to backup server ..."
-    shutdownstacks
-    rsync -avhsP --delete "$HOST":"$docker_location_source"/ "$docker_location_destination"
-    startupstacks
+  if [ -f "$backup_location"/i_shutdown_source ] ; then
+    rm "$backup_location"/i_shutdown_source
   fi
-  cleanup
+  ssh "$HOST" [[ -f "$backup_location"/start ]] && start="yes" || start="no";
+  if [ "$start" == "yes" ] ; then
+    ssh "$HOST" rm "$backup_location"/start
+    rsync -avhsP "$HOST":"$backup_location"/ "$backup_location" >/dev/null
+    echo "Source server initiated sync"
+    echo "Syncing data to backup server ..."
+    for i in `seq 1 ${#source[@]}` ; do
+      rsync -avhsP --delete "$HOST":"${source[$i -1]}"/ "${destination[$i -1]}"
+    done
+    if [ -n "$docker_location_destination" ] ; then
+      echo "Syncing docker data to backup server ..."
+      shutdownstacks
+      rsync -avhsP --delete "$HOST":"$docker_location_source"/ "$docker_location_destination"
+      startupstacks
+    fi
+    if [ "$failover" == "yes" ] ; then
+      echo "Source server will shut off shortly ... exiting"
+      touch "$backup_location"/i_shutdown_source
+    else
+      echo "Shutting down backup server ... exiting"
+    fi
+  else
+    echo "Source server didn't request sync job. Normal start of backup server ... exiting"
+  fi
 }
 
 # start process ################################################################
 
 mkdir -p "$log_location" && touch "$log_name"
 mainfunction 2>&1 | tee -a "$log_name"
+rsync -avhsP "$log_name" "$HOST":"$log_name" >/dev/null
+if [ "$failover" == "yes" ] ; then
+  ssh "$HOST" poweroff
+else
+  poweroff
+fi
 exit

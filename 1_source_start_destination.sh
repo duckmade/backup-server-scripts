@@ -26,16 +26,6 @@ pingdestination () {
   fi
 }
 
-shallicontinue () {
-  pingdestination
-  if [ "$destinationstatus" == "on" ] ; then
-    echo "Backup server already running. Sync must be manually run from backup server ... exiting"
-    exit
-  fi
-  echo "Backup server is off. Attempting to start destination server"
-  touch "$backup_location"/start
-}
-
 wakeonlan () {
   etherwake -b "$destination_mac"
 }
@@ -49,13 +39,23 @@ destinationstatus () {
     ((checkbackup=checkbackup+1))
     sleep 30
   done
-  echo "Server is on, taking" "$((checkbackup * 30))" "seconds to boot. Backup process should start from the backup server ... exiting"
+  echo "Server is on, taking" "$((checkbackup * 30))" "seconds to boot"
 }
 
 mainfunction () {
-  shallicontinue
-  wakeonlan
-  destinationstatus
+  if [ -f "$backup_location"/start ] ; then
+    rm "$backup_location"/start
+  fi
+  pingdestination
+  if [ "$destinationstatus" == "on" ] ; then
+    echo "Backup server already running"
+  else
+    echo "Backup server is off. Attempting to start destination server"
+    touch "$backup_location"/start
+    wakeonlan
+    destinationstatus
+  fi
+  echo "Sync must initiate from backup server ... exiting"
 }
 
 # start process ################################################################
