@@ -26,7 +26,7 @@ docker_location_destination=""
 # fixed variables ##############################################################
 
 log_location="$backup_location"/logs
-log_name="$log_location"/"$(date +'%Y-%m-%d')"--2_destination_backup.txt
+log_name="$log_location"/"$(date +'%Y-%m-%d--%H:%M')"--2_destination_backup.txt
 
 HOST="root@""$source_ip"
 
@@ -57,7 +57,7 @@ shutdownstacks () {
 }
 
 startupstacks () {
-  if [ "$failover" == "yes"  ] ; then
+  if [ "$failover" == "yes" ] ; then
     for i in $(find /boot/config/plugins/compose.manager/projects/ -mindepth 1 -maxdepth 1 -type d) ; do
       echo "Starting stacks on backup server ..."
       docker-compose -f "$i"/compose.yml up -d
@@ -72,7 +72,7 @@ startupstacks () {
 
 cleanup () {
   rsync -avhsP --delete "$backup_location"/ "$HOST":"$backup_location" >/dev/null
-  if [ "$failover" == "yes"  ] ; then
+  if [ "$failover" == "yes" ] ; then
     echo "Source server will shut off shortly ... exiting"
     ssh "$HOST" poweroff
     touch "$backup_location"/i_shutdown_source
@@ -88,7 +88,7 @@ mainfunction () {
   for i in `seq 1 ${#source[@]}` ; do
     rsync -avhsP --delete "$HOST":"${source[$i -1]}"/ "${destination[$i -1]}"
   done
-  if [ -n "$docker_location_destination"] ; then
+  if [ -n "$docker_location_destination" ] ; then
     echo "Syncing docker data to backup server ..."
     shutdownstacks
     rsync -avhsP --delete "$HOST":"$docker_location_source"/ "$docker_location_destination"

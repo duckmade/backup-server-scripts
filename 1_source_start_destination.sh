@@ -13,7 +13,7 @@ backup_location="/mnt/user/system/backups"
 # fixed variables ##############################################################
 
 log_location="$backup_location"/logs
-log_name="$log_location"/"$(date +'%Y-%m-%d')"--1_source_start_destination.txt
+log_name="$log_location"/"$(date +'%Y-%m-%d--%H:%M')"--1_source_start_destination.txt
 
 # functions ####################################################################
  
@@ -28,7 +28,7 @@ pingdestination () {
 
 shallicontinue () {
   pingdestination
-  if [ "$destinationstatus" == "on"  ] ; then
+  if [ "$destinationstatus" == "on" ] ; then
     echo "Backup server already running. Sync must be manually run from backup server ... exiting"
     exit
   fi

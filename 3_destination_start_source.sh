@@ -22,7 +22,7 @@ docker_location_destination=""
 # fixed variables ##############################################################
 
 log_location="$backup_location"/logs
-log_name="$log_location"/"$(date +'%Y-%m-%d')"--3_destination_start_source.txt
+log_name="$log_location"/"$(date +'%Y-%m-%d--%H:%M')"--3_destination_start_source.txt
 
 HOST="root@""$source_ip"
 
@@ -41,7 +41,7 @@ shallicontinue () {
   if [ -f "$backup_location"/i_shutdown_source ] ; then
     rm "$backup_location"/i_shutdown_source
     pingsource
-    if [ "$sourcestatus" == "on"  ] ; then
+    if [ "$sourcestatus" == "on" ] ; then
       echo "Source server already running"
       cleanup
       exit
@@ -112,7 +112,7 @@ mainfunction () {
   wakeonlan
   sourcestatus
   checkarraystarted
-  if [ -n "$docker_location_destination"] ; then
+  if [ -n "$docker_location_destination" ] ; then
     echo "Syncing docker data back to source server ..."
     shutdownstacks
     rsync -avhsP --delete "$docker_location_destination"/ "$HOST":"$docker_location_source"
