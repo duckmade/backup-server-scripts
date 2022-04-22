@@ -10,7 +10,7 @@ destination_mac=""
 # location of backup directory for both source and destination (without trailing slash!)
 backup_location="/mnt/user/system/backups"
 
-# fixed variables ##############################################################
+# fixed variables (DONT CHANGE) ################################################
 
 log_location="$backup_location"/logs
 log_name="$log_location"/"$(date +'%Y-%m-%d--%H:%M')"--1_source_start_destination.txt

@@ -8,8 +8,8 @@ source_ip=""
 failover="no"
 
 # data directories to backup ("source 1" "source 2") (without trailing slash!)
-declare -a source=("" "")
-declare -a destination=("" "")
+declare -a source=("/mnt/user/data" "/mnt/user/timemachine")
+declare -a destination=("/mnt/user/data" "/mnt/user/timemachine")
 
 # location where docker related data is stored on source server (without trailing slash!)
 docker_location_source="/mnt/user/appdata"
@@ -21,9 +21,9 @@ backup_location="/mnt/user/system/backups"
 
 # location where docker related data is stored on destination server (without trailing slash!)
 # if set, docker data is synced to destination server and stacks are shutdown!
-docker_location_destination=""
+docker_location_destination="/mnt/user/appdata"
 
-# fixed variables ##############################################################
+# fixed variables (DONT CHANGE) ################################################
 
 log_location="$backup_location"/logs
 log_name="$log_location"/"$(date +'%Y-%m-%d--%H:%M')"--2_destination_backup.txt
